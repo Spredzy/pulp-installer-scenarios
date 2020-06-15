@@ -1,0 +1,11 @@
+[database]
+database01
+
+[redis]
+redis01
+
+[haproxy]
+haproxy01
+
+[pulp]
+pulp[01:03]

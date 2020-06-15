@@ -1,0 +1,37 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.configure("2") do |config|
+  config.vm.provider :libvirt do |domain|
+    domain.qemu_use_session = false
+    domain.memory = 4096
+  end
+
+  # config.vm.provision "shell" do |s|
+  #   s.inline = "sudo yum -y install git vim epel-release && sudo yum -y install python=pip ansible"
+  # end
+
+  config.vm.define "database01" do |database01|
+    database01.vm.box = "centos/7"
+  end
+
+  config.vm.define "redis01" do |redis01|
+    redis01.vm.box = "centos/7"
+  end
+
+  config.vm.define "haproxy01" do |haproxy01|
+    haproxy01.vm.box = "centos/7"
+  end
+
+  config.vm.define "pulp01" do |pulp01|
+    pulp01.vm.box = "centos/7"
+  end
+
+  config.vm.define "pulp02" do |pulp02|
+    pulp02.vm.box = "centos/7"
+  end
+
+  config.vm.define "pulp03" do |pulp03|
+    pulp03.vm.box = "centos/7"
+  end
+end

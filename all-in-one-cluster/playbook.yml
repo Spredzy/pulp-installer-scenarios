@@ -1,0 +1,137 @@
+---
+# Playbook to deploy a clustered installed of Pulp. In this approach
+# all nodes contains all pulp services (api, content, resource
+# manager, workers).
+#
+
+- hosts: all
+  vars:
+    _pulp_source_ips_v4: []
+    _pulp_source_ips_v6: []
+  tasks:
+    - name: Build list of pulp nodes IPs v4
+      set_fact:
+        _pulp_source_ips_v4: "{{ _pulp_source_ips_v4 }} + [ '{{ hostvars[item].ansible_all_ipv4_addresses[0] }}' ]"
+      loop: '{{ groups["pulp"] }}'
+
+    - name: Build list of pulp nodes IPs v6
+      set_fact:
+        _pulp_source_ips_v6: "{{ _pulp_source_ips_v6 }} + [ '{{ hostvars[item].ansible_all_ipv6_addresses[0] }}' ]"
+      loop: '{{ groups["pulp"] }}'
+
+- hosts: redis
+  vars:
+    pulp_redis_bind: '{{ ansible_all_ipv4_addresses[0] }}:6379'
+  tasks:
+    - name: Install EPEL
+      package:
+        name: epel-release
+      become: true
+
+    - name: Install and Configure Rediss
+      include_role:
+        name: pulp_redis
+
+- hosts: database
+  become: true
+  vars:
+    _postgresql_hba_entries:
+      - {type: local, database: all, user: postgres, auth_method: peer}
+      - {type: local, database: all, user: all, auth_method: peer}
+      - {type: host, database: all, user: all, address: '127.0.0.1/32', auth_method: md5}
+      - {type: host, database: all, user: all, address: '::1/128', auth_method: md5}
+    postgresql_packages: rh-postgresql96
+    postgresql_daemon: rh-postgresql96-postgresql
+    postgresql_bin_path: /opt/rh/rh-postgresql96/root/bin
+    postgresql_data_dir: /var/opt/rh/rh-postgresql96/lib/pgsql/data
+    postgresql_config_path: /var/opt/rh/rh-postgresql96/lib/pgsql/data
+    postgresql_profile_path: /etc/profile.d/enablepostgresql96.sh
+  tasks:
+    - name: Enable SCL repo
+      package:
+        name: centos-release-scl
+        state: present
+      become: true
+
+    - name: Set database defaults if not provided
+      set_fact:
+        merged_pulp_settings: '{{ pulp_settings_db_defaults | default({}) | combine(pulp_settings, recursive=True) }}'
+
+    - name: Set database name and user facts
+      set_fact:
+        pulp_database_name: '{{ merged_pulp_settings.databases.default.NAME }}'
+        pulp_database_user: '{{ merged_pulp_settings.databases.default.USER }}'
+
+    - name: Ensure _pulp_source_ips v4 are part of PG HBA entries
+      set_fact:
+        _postgresql_hba_entries: '{{ _postgresql_hba_entries }} + [{"type": "host", "database": "{{ pulp_database_name }}", "user": "{{ pulp_database_user }}", "address": "{{ item }}/32", "auth_method": "md5"}]'
+      loop: '{{ _pulp_source_ips_v4 }}'
+
+    - name: Ensure _pulp_source_ips v6 are part of PG HBA entries
+      set_fact:
+        _postgresql_hba_entries: '{{ _postgresql_hba_entries }} + [{"type": "host", "database": "{{ pulp_database_name }}", "user": "{{ pulp_database_user }}", "address": "{{ item }}/128", "auth_method": "md5"}]'
+      loop: '{{ _pulp_source_ips_v6 }}'
+
+    - name: Setup database
+      include_role:
+        name: geerlingguy.postgresql
+      vars:
+        postgresql_hba_entries: '{{ _postgresql_hba_entries }}'
+        postgresql_databases:
+          - name: '{{ pulp_database_name }}'
+            owner: '{{ pulp_database_user }}'
+        postgresql_users:
+          - name: '{{ pulp_database_user }}'
+            password: '{{ merged_pulp_settings.databases.default.PASSWORD }}'
+            role_attr_flags: CREATEDB
+        postgresql_global_config_options:
+          - option: listen_addresses
+            value: '*'
+
+
+- hosts: pulp
+  roles:
+    - pulp
+    - pulp_database
+    - pulp_workers
+    - pulp_resource_manager
+    - pulp_webserver
+    - pulp_content
+  environment:
+    DJANGO_SETTINGS_MODULE: pulpcore.app.settings
+
+- hosts: localhost
+  tasks:
+    - name: Configure Galaxy Backend
+      include_role:
+        name: chouseknecht.ansible_galaxy_config
+
+- hosts: haproxy
+  become: true
+  tasks:
+    - name: Install haproxy
+      package:
+        name: haproxy
+        state: present
+
+    - name: Add galaxy_ng section
+      blockinfile:
+        path: /etc/haproxy/haproxy.cfg
+        block: |
+          frontend galaxy_ng
+            bind *:80
+            mode http
+            use_backend galaxy_ng_backend
+          backend galaxy_ng_backend
+            balance roundrobin
+            mode http
+            option forwardfor
+            http-request set-header X-Forwarded-Port %[dst_port]
+            server ng1 {{ _pulp_source_ips_v4[0] }}:80
+            server ng2 {{ _pulp_source_ips_v4[1] }}:80
+            server ng3 {{ _pulp_source_ips_v4[2] }}:80
+
+    - name: Start haproxy
+      service:
+        name: haproxy
+        state: started

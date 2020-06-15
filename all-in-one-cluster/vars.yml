@@ -1,0 +1,28 @@
+---
+pulp_settings:
+  secret_key: secret
+  content_origin: "http://{{ ansible_fqdn }}"
+  x_pulp_api_host: 127.0.0.1
+  x_pulp_api_port: 80
+  x_pulp_api_user: "admin"
+  x_pulp_api_password: "{{ pulp_default_admin_password }}"
+  x_pulp_api_prefix: "pulp_ansible/galaxy/automation-hub/api"
+  galaxy_require_content_approval: "False"
+  pulp_token_auth_disabled: "True"
+  databases:
+    default:
+      HOST: "{{ hostvars['database01'].ansible_all_ipv4_addresses[0] }}"
+      PORT: 5432
+      ENGINE: django.db.backends.postgresql_psycopg2
+      NAME: pulp
+      USER: pulp
+      PASSWORD: pulp
+  redis_host: "{{ hostvars['redis01'].ansible_all_ipv4_addresses[0] }}"
+pulp_install_db: false
+pulp_default_admin_password: password
+pulp_install_plugins:
+  pulp-ansible: {}
+  galaxy-ng: {}
+  pulp-container:
+    version: 2.0.0b2
+pulp_api_workers: 4
