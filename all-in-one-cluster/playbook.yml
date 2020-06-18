@@ -19,6 +19,11 @@
         _pulp_source_ips_v6: "{{ _pulp_source_ips_v6 }} + [ '{{ hostvars[item].ansible_all_ipv6_addresses[0] }}' ]"
       loop: '{{ groups["pulp"] }}'
 
+    - name: Set proper hostname
+      hostname:
+        name: '{{ inventory_hostname }}'
+      become: true
+
 - hosts: redis
   vars:
     pulp_redis_bind: '{{ ansible_all_ipv4_addresses[0] }}:6379'
@@ -28,7 +33,7 @@
         name: epel-release
       become: true
 
-    - name: Install and Configure Rediss
+    - name: Install and Configure Redis
       include_role:
         name: pulp_redis
 
@@ -90,17 +95,37 @@
 
 
 - hosts: pulp
-  roles:
-    - pulp
-    - pulp_database
-    - pulp_workers
-    - pulp_resource_manager
-    - pulp_webserver
-    - pulp_content
+  become: true
+  serial: 1
+  tasks:
+    - name: Include pulp role
+      include_role:
+        name: pulp
+
+    - name: Include pulp_database role
+      include_role:
+        name: pulp_database
+
+    - name: Include pulp_workers role
+      include_role:
+        name: pulp_workers
+
+    - name: Include pulp_resource_manager
+      include_role:
+        name: pulp_resource_manager
+
+    - name: Include pulp_webserver role
+      include_role:
+        name: pulp_webserver
+
+    - name: Include pulp_content role
+      include_role:
+        name: pulp_content
+
   environment:
     DJANGO_SETTINGS_MODULE: pulpcore.app.settings
 
-- hosts: localhost
+- hosts: pulp
   tasks:
     - name: Configure Galaxy Backend
       include_role:
